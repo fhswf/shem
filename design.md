@@ -147,6 +147,8 @@ The orchestrator automatically checks for module updates and verifies their sign
 
 The orchestrator also provides a rollback mechanism that allows to go back to a previous module version.
 
+The update process is described in [update-mechanism.md](./update-mechanism.md).
+
 ### Backup and restore
 The orchestrator allows to make manual and automatic backups. These backups contain only
 - the configuration files of orchestrator and modules
