@@ -109,7 +109,7 @@ Functionality of the orchestrator include
 ### Module containers
 Every instance of every module lives in its own container. The isolation between containers makes it harder to exploit security defects in a module and to contain the effects of a successful attack on a module.
 
-SHEM will make use of OCI containers (docker, podman). The isolation might be improved giving each module instance its own virtual machine (like in Kata Containers or Qubes OS), but this would require hardware more powerful than a Raspberry Pi.
+SHEM will make use of OCI containers (docker, podman). The isolation might be improved giving each module instance its own virtual machine (like in Kata Containers or Qubes OS), or by using FreeBSD jails.
 
 ### Communication between modules
 Every module can only communicate to the orchestrator. If it requires data from other modules, it can request it from the orchestrator.
@@ -120,7 +120,7 @@ All communication uses a simple data format that is validated by the orchestrato
 The connection to a local device is made via USB or network. The corresponding logical device (USB tty device or network socket) is assigned exclusively to the module that manages the local device.
 
 ### Communication with the outside world
-Internet access is only provided to modules that need it. Any other module will have no connection to the internet. In addition, their time will be warped to make coordinated attacks more difficult to synchronize.
+Internet access is only provided to modules that need it. Any other module will have no connection to the internet. If possible, their time will be warped to make coordinated attacks more difficult to synchronize.
 
 ### Data format
 In order to assure an unambiguous interpretation of data and to make it more difficult to smuggle malformed data through validation, all data is in ASCII format and limited to printable characters. Newlines are indicated by the line feed symbol.
