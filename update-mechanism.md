@@ -4,88 +4,100 @@ This document describes how the orchestrator handles updates for both modules an
 Updates are published via container registries. The orchestrator downloads the container images, verifies signatures, and updates modules and itself automatically. If a failure is detected, the offending update is rolled back.
 
 ## Initial installation
-SHEM is installed by extracting an archive in the home directory of the user that SHEM will run as. The archive contains the directory structure, the binary of the orchestrator, the public key for orchestrator updates, and a template for the systemd unit.
+SHEM is installed by extracting an architecture-specific archive in the home directory of the user that SHEM will run as. Each supported architecture (amd64, arm64) has its own release archive containing the appropriate binaries and configuration. The archive contains the directory structure, the binary of the orchestrator, basic configuration files, and a systemd unit file.
 
 ```
 $SHEM_HOME/                     # default: ~/shem
 |-- bin/                        # orchestrator binaries
-|-- config/                     # configuration files
-|-- pubkeys/                    # publisher public keys
+|-- modules/                    # information on installed modules
+    |-- orchestrator            # the orchestrator is a special module
+        |-- ...                 # module configuration files
+    |-- mymodule1               # additional modules
+        |-- ...
 ...
 |-- shem-orchestrator.service
 ```
 
 Container images will be stored wherever podman is configured to store them.
 
+The orchestrator runs as a systemd service. It can be started manually, but it will exit and expect to be restarted during a self-update.
+
 ## Container registries
-Modules, module updates, and orchestrator updates are published via container registries. Tags are used for different versions. For each binary image, an accompanying image is published that contains the signature for the binary image. It is called a_module-sig:vx.y.z for the a_module:vx.y.z image.
+Modules, module updates, and orchestrator updates are published via container registries. Tags are used for different versions and include architecture suffixes for multi-architecture support. For each binary image, an accompanying image is published that contains the signature for the binary image. It is called amodule-sig:x.y.z-arch for the amodule:x.y.z-arch image.
 
 For example, the orchestrator images might look like this:
 ```
 quay.io/shem/
-|── shem-orchestrator:v0.0.1          # binary containers
-|── shem-orchestrator:v0.0.2
-|── shem-orchestrator-sig:v0.0.1      # signature containers (labels only)
-|── shem-orchestrator-sig:v0.0.2
-|── shem-orchestrator-sig:stable      # always contains the most recent stable version
+|── shem-orchestrator:0.0.1-amd64          # binary containers
+|── shem-orchestrator:0.0.1-arm64
+|── shem-orchestrator:0.0.2-amd64
+|── shem-orchestrator:0.0.2-arm64
+|── shem-orchestrator-sig:0.0.1-amd64      # signature containers (labels only)
+|── shem-orchestrator-sig:0.0.1-arm64
+|── shem-orchestrator-sig:0.0.2-amd64
+|── shem-orchestrator-sig:0.0.2-arm64
+|── shem-orchestrator-sig:latest-amd64      # always contains the most recent version
+|── shem-orchestrator-sig:latest-arm64
 ```
-
 
 ## Signature Mechanism
 SHEM uses Ed25519 signatures for verifying updates. OpenSSL's pkeyutl can be used to sign releases.
 
-The signature covers the module name, version, and the digest of the binary container. For example, the string "shem-orchestrator:v0.0.1 sha256:3b4c5d6e..." is signed for the orchestrator binary, version 0.0.1.
+The signature covers the image name, tag (i.e., version and architecture), and the digest of the binary container. For example, the string "quay.io/shem/shem-orchestrator:0.0.1-amd64 sha256:3b4c5d6e..." is signed for the orchestrator binary, version 0.0.1 for amd64 architecture.
 
-Both the public key and signature are stored as labels in a special signature container. In this example, the container would be called shem-orchestrator-sig:v0.0.1.
+Both the public key and signature are stored as labels in a special signature container. In this example, the container would be called quay.io/shem/shem-orchestrator-sig:0.0.1-amd64.
 
 The Containerfile might look like this:
 ```dockerfile
 FROM scratch
+LABEL org.opencontainers.image.version="0.0.1-amd64"
 LABEL energy.shem.digest="sha256:3b4c5d6e..."
-LABEL energy.shem.pubkey1="MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0="
-LABEL energy.shem.signature1="AiMEIX/R..."
+LABEL energy.shem.pubkey="MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0="
+LABEL energy.shem.signature="AiMEIX/R..."
 ```
 
 ### Creating Signature Containers
-When signing containers, make sure to compute the digest locally (otherwise you would trust the registry to not change the container).
+When signing containers, we have to make sure to compute the digest locally (otherwise we would trust the registry to not change the container). According to the [OCI spec](https://github.com/opencontainers/distribution-spec/blob/main/spec.md#push), the digest of every upload is computed by the client and then re-computed and returned by the registry. In the following example, we use podman push with the --digestfile parameter to get the digest. We cannot simply use the digest of the container in local storage, as it will often be different from the uploaded version due to different compression settings.
+
 ```bash
 #!/bin/bash
-# sign-container.sh - sign container using locally computed digest
-
 set -e
 
-IMAGE_NAME="$1"   # e.g., shem-orchestrator
-VERSION="$2"      # e.g., v0.1.0
-KEY_FILE="$3"     # e.g., private.key
-KEY_NUMBER="${4:-1}"
+REGISTRY="$1"     # e.g., quay.io/shem
+IMAGE_NAME="$2"   # e.g., shem-orchestrator
+VERSION="$3"      # e.g., 0.0.1
+ARCH="$4"         # e.g., amd64
+KEY_FILE="$5"     # e.g., signing-key.pem
 
-LOCAL_IMAGE="localhost/${IMAGE_NAME}:${VERSION}"
-REGISTRY_IMAGE="quay.io/shem/${IMAGE_NAME}:${VERSION}"
-SIGNATURE_IMAGE="quay.io/shem/${IMAGE_NAME}-sig:${VERSION}"
+LOCAL_IMAGE="localhost/${IMAGE_NAME}:${VERSION}-${ARCH}"
+REGISTRY_IMAGE="${REGISTRY}/${IMAGE_NAME}:${VERSION}-${ARCH}"
+SIGNATURE_IMAGE="${REGISTRY}/${IMAGE_NAME}-sig:${VERSION}-${ARCH}"
+SIGNATURE_LATEST="${REGISTRY}/${IMAGE_NAME}-sig:latest-${ARCH}"
 
-# Push and capture locally computed digest (do not trust registry by using digest from there)
+# Push and capture locally computed digest
+DIGEST_FILE=$(mktemp)
 echo "Pushing to registry..."
-PUSH_OUTPUT=$(podman push "$LOCAL_IMAGE" "$REGISTRY_IMAGE" 2>&1)
-echo "$PUSH_OUTPUT"
+podman push "$LOCAL_IMAGE" "$REGISTRY_IMAGE" --digestfile "$DIGEST_FILE"
 
-# Extract digest that podman computed locally
-DIGEST=$(echo "$PUSH_OUTPUT" | grep -oP 'Writing manifest to image destination.*sha256:\K[a-f0-9]{64}')
+DIGEST=$(cat "$DIGEST_FILE")
+rm "$DIGEST_FILE"
 
 if [ -z "$DIGEST" ]; then
-    echo "ERROR: Could not extract digest from push output"
+    echo "ERROR: Could not get digest from podman push"
     exit 1
 fi
 
-echo "Locally computed digest: sha256:$DIGEST"
+echo "Locally computed digest: $DIGEST"
 
 # Sign the message
-MESSAGE="${IMAGE_NAME}:${VERSION} sha256:${DIGEST}"
+MESSAGE="${REGISTRY_IMAGE} ${DIGEST}"
 
-TMPFILE=$(mktemp)
-echo -n "$MESSAGE" > "$TMPFILE"
-openssl pkeyutl -sign -inkey "$KEY_FILE" -rawin -in "$TMPFILE" -out "${TMPFILE}.sig"
-SIGNATURE=$(base64 -w0 < "${TMPFILE}.sig")
-rm "$TMPFILE" "${TMPFILE}.sig"
+MSGFILE=$(mktemp)
+SIGFILE=$(mktemp)
+echo -n "$MESSAGE" > "$MSGFILE"
+openssl pkeyutl -sign -inkey "$KEY_FILE" -rawin -in "$MSGFILE" -out "$SIGFILE"
+SIGNATURE=$(base64 -w0 < "$SIGFILE")
+rm "$MSGFILE" "$SIGFILE"
 
 # Get public key
 PUBKEY=$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | base64 -w0)
@@ -93,53 +105,71 @@ PUBKEY=$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | base64 -w0)
 # Create signature container
 cat > Containerfile.sig <<EOF
 FROM scratch
-LABEL energy.shem.digest="sha256:$DIGEST"
-LABEL energy.shem.pubkey${KEY_NUMBER}="$PUBKEY"
-LABEL energy.shem.signature${KEY_NUMBER}="$SIGNATURE"
+LABEL org.opencontainers.image.version="$VERSION"
+LABEL energy.shem.registryimage="$REGISTRY_IMAGE"
+LABEL energy.shem.digest="$DIGEST"
+LABEL energy.shem.pubkey="$PUBKEY"
+LABEL energy.shem.signature="$SIGNATURE"
 EOF
 
 podman build -f Containerfile.sig -t "$SIGNATURE_IMAGE" .
-podman push "$SIGNATURE_IMAGE"
 rm Containerfile.sig
+
+podman push "$SIGNATURE_IMAGE"
 ```
 
 A signing key can be created in this way:
 ```
-openssl genpkey -algorithm ed25519 -out private.pem
+openssl genpkey -algorithm ed25519 -out signing-key.pem
 ```
 
-## Checking for updates
-The orchestrator keeps itself and all modules up to date in the following way:
+## Automatic Module Updates
+Modules have their configuration stored in individual directories under `$SHEM_HOME/modules/[module_name]`. For automatic updates to be enabled, a module directory must contain both an `image` file (specifying the container image) and a `public_key` file (containing the base64-encoded public key of the publisher).
 
-1. For all installed modules and the orchestrator itself, it regularly checks the originating registries for new versions. The available versions are enumerated by listing the tags of the signature container, and in addition by pulling the "stable" tag of the signature container. All not-yet-known tags of the signature containers are pulled.
-2. The orchestrator verifies the signatures using the locally stored public keys (each module has its own public key). If the signature for a certain digest is valid, it downloads the binary image using "podman pull image@digest". Otherwise, it logs an error message and does not download anything.
-3. It schedules the updates with a random delay (0 to 96 hours). At the specified time, it sequentially tries updating all modules with a newer version (for the orchestrator, see below). For each module, it performs some checks to find out whether it works correctly. If a module fails to work, it marks this version as flawed and tries the next newest version.
+For example, the orchestrator module configuration for automatic updates would be stored as:
+```
+$SHEM_HOME/modules/orchestrator/
+|-- image  [quay.io/shem/shem-orchestrator]
+|-- public_key  [MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0=]
+```
+
+The orchestrator will regularly check for updates for all modules that have `public_key` files in their configuration directories. Modules without a `public_key` file that are available in local storage (e.g., because you pulled them manually) can still be used but won't be automatically updated.
+
+A new module can also be added using the `add-module` command:
+
+```bash
+shem-orchestrator add-module mymodule quay.io/publisher/mymodule
+```
+
+This command will:
+1. Pull a corresponding signature container (e.g., `quay.io/publisher/mymodule-sig:latest-amd64`)
+2. Extract the public key and ask the user if it should be added.
+3. If yes, create the module directory `$SHEM_HOME/modules/mymodule/` and write the image name to the `image` file and the public key to the `public_key` file, then trigger the update process, which will verify and pull the latest version of the module.
+
+## Module Blacklist
+The orchestrator maintains per-module blacklists in `$SHEM_HOME/modules/[module_name]/blacklist` files that contain versions that failed to work previously and are skipped when searching for updates. Each blacklisted version is listed on a separate line.
+
+## Checking for updates
+The orchestrator keeps itself and the modules up to date. For each module that has a `public_key` file in its configuration directory, it proceeds in the following way:
+
+1. It regularly checks the originating registries for new versions. The available versions are enumerated by listing the tags of the signature container, and in addition by pulling the "latest-[arch]" tag of the signature container (as listing all tags might fail).
+
+2. The orchestrator selects the version of the signature container to pull by taking the latest version (highest version number) that is:
+   - Not on the module's blacklist (stored in `$SHEM_HOME/modules/[module_name]/blacklist`)
+   - Higher than the highest version already pulled and not on the blacklist.
+
+   If no such version exists, the updater skips this module.
+
+3. The orchestrator verifies the signatures using the public key stored in the module's `public_key` file. If the signature is valid, it downloads the binary image using "podman pull image@digest". If signature verification fails, it returns to step 2 while ignoring this version.
+
+4. It schedules the updates with a random delay (0 to 96 hours). At the specified time, it stops the old module and starts the new one (for orchestrator updates, see below). If the new version fails to work correctly, it adds this version to the module's blacklist file (`$SHEM_HOME/modules/[module_name]/blacklist`). The updater will then, on its next run, skip this version and try the next older one.
 
 The signature containers remain in the local repository. Even if the signature container on the registry is changed later, this may serve as an audit trail.
 
-
 ### Orchestrator Self-Update
-At the scheduled time, the update of the orchestrator itself is handled as follows:
+For everyting except for the update itself the orchestrator is just treated as any other module. However, the update has to be performed differently. At the scheduled time, the orchestrator updates itself as follows:
 
-1. The running orchestrator extracts the orchestrator binary from the image and stores it in the $SHEM_HOME/bin directory with the version number attached (e.g., shem-orchestrator-v0.0.2).
-2. It creates a marker file (e.g., shem-orchestrator-v0.0.2.try-me-once).
-3. The orchestrator exits cleanly, triggering systemd to restart it.
-4. On startup, it checks for try-me-once markers for versions newer than itself. If one exists, it removes the newest one and subsequently executes it with the flag "--verification-run". Standard output from the new orchestrator is piped to standard output.
-5. The new orchestrator checks its own health. If everything works fine, it updates the symlink "shem-orchestrator" to point to its own binary. It then exits to be immediately restarted by systemd.
-
-The failed binaries remain in the bin directory. They can be retried manually by creating a try-me-once marker file and asking systemd to restart the orchestrator. Old versions also remain to allow manual rollback. This works by just changing the symlink.
-
-After step 2, the bin directory might look like this:
-
-```
-$SHEM_HOME/bin/
-├── shem-orchestrator -> shem-orchestrator-v0.5.0  # Symlink used by systemd
-├── shem-orchestrator-v0.5.0                       # Current version
-├── shem-orchestrator-v0.6.0                       # Downloaded new version
-└── shem-orchestrator-v0.6.0.try-me-once           # Version-specific marker
-```
-
-## Public Key Management
-The public keys for each module and the orchestrator are stored in $SHEM_HOME/pubkeys/. For each module (and "shem-orchestrator") a file named after the module contains the public key.
-
-A new module can be added with "shem-orchestrator add-module quay.io/publisher/module". This will prompt for the public key to be accepted in the future. If no public key is installed, the module will not be updated, as the signature verification step always fails.
+1. The running orchestrator extracts the new orchestrator binary from the image and stores it in the $SHEM_HOME/bin directory with the version number attached (e.g., shem-orchestrator-0.0.2).
+2. It exits cleanly, triggering systemd to restart it.
+3. On startup, it checks for versions newer than itself that are not on the orchestrator's blacklist (stored in `$SHEM_HOME/modules/orchestrator/blacklist`). If one exists, it puts it on the blacklist first and then executes it with the flag "--verification-run". Standard output/error from the new orchestrator is piped to standard output/error.
+4. The new orchestrator starts up and checks its own health after a few minutes. If everything works fine, it updates the symlink "shem-orchestrator" to point to its own binary and removes itself from the blacklist. It then exits to be immediately restarted by systemd.

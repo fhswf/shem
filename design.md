@@ -50,8 +50,9 @@ An important aim of this project is to take security considerations like these i
   - backdoor introduced into SHEM (by an innocent-looking pull request or by taking over a developer account)
   - manipulating data on publicly accessible platforms such as energy prices
   - provoking situations in which intentional behavior backfires (e.g., triggering failure detection in many SHEM instances)
+  - providing an external module which interrupts the operation of the whole system or even breaks out of its container
 
-[This section needs to be expanded: systematically list attack vectors and analyze them in more depth, and also identify safety risks.]
+[This section could be expanded by systematically listing attack vectors and analyzing them in more depth. It should also identify safety risks.]
 
 ### Failure and Manipulation Detection
 - **Internal failures**: The system continously checks for signs of internal failure. If failures within the home energy system are detected, failsafe behavior for the affected parts is triggered (see below). Possible failures include
@@ -93,7 +94,7 @@ Modules include
 ### Orchestrator
 All modules are started, controlled, and stopped by the orchestrator. The orchestrator is the only part of SHEM that runs directly on hardware instead of being containerized.
 
-Because of this central role, the orchestrator should depend on as little dependencies as possible in order to keep the trusted computing base small.
+Because of this central role, the orchestrator should depend on as little dependencies as possible in order to keep the trusted computing base small. It is written in Go and uses only Go's standard library. Its only dependencies are that it calls podman to manage modules and relies on systemd to be started.
 
 Functionality of the orchestrator include
 - downloading, verifying, updating, starting and stopping modules
@@ -101,7 +102,7 @@ Functionality of the orchestrator include
 - providing configuration data and a communication channel to modules
 - sanitizing and rate-limiting data from modules and passing it on
 - detecting module failure and trying to resolve it by restarting
-- storing historical data [could be outsourced to a module]
+- storing historical data (with the help of a special module)
 - allow the user to change configuration in a safe way (validate configuration data, require authentication and (local) attestation)
 - logging and communicating important errors to the user immediately
 
