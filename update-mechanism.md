@@ -52,7 +52,7 @@ The Containerfile might look like this:
 FROM scratch
 LABEL org.opencontainers.image.version="0.0.1-amd64"
 LABEL energy.shem.digest="sha256:3b4c5d6e..."
-LABEL energy.shem.pubkey="MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0="
+LABEL energy.shem.pubkey="cQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0="
 LABEL energy.shem.signature="AiMEIX/R..."
 ```
 
@@ -100,7 +100,7 @@ SIGNATURE=$(base64 -w0 < "$SIGFILE")
 rm "$MSGFILE" "$SIGFILE"
 
 # Get public key
-PUBKEY=$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | base64 -w0)
+PUBKEY=$(openssl pkey -in "$KEY_FILE" -pubout -outform DER | tail -c 32 | base64 -w0)
 
 # Create signature container
 cat > Containerfile.sig <<EOF
@@ -130,7 +130,7 @@ For example, the orchestrator module configuration for automatic updates would b
 ```
 $SHEM_HOME/modules/orchestrator/
 |-- image  [quay.io/shem/shem-orchestrator]
-|-- public_key  [MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0=]
+|-- public_key  [cQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0=]
 ```
 
 The orchestrator will regularly check for updates for all modules that have `public_key` files in their configuration directories. Modules without a `public_key` file that are available in local storage (e.g., because you pulled them manually) can still be used but won't be automatically updated.

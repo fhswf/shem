@@ -6,7 +6,7 @@ The configuration of each module is stored in the directory $SHEM_HOME/modules/[
 ```
 $SHEM_HOME/modules/orchestrator/
 |-- image  [quay.io/shem/shem-orchestrator]
-|-- public_key  [MCowBQYDK2VwAyEAcQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0=]
+|-- public_key  [cQyjQftwIlSGYvWjfDMzpr0B5/Lr/S8jDFfVW3hOBk0=]
 |-- current_version  [0.0.4]
 |-- blacklist  [0.0.2\n0.0.3]
 |-- module.conf
