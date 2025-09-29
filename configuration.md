@@ -20,3 +20,8 @@ The name of the directory is the name of the module. The files and the directory
 - `blacklist`: contains blacklisted version numbers, one per line
 - `module.conf`: a configuration file that is copied into the module's container
 - `storage/`: modules that are allowed to persist data will have this directory mounted into the container
+
+## Orchestrator additional options
+These options can be set by creating a file named after the option in `$SHEM_HOME/modules/orchestrator/`:
+- `UpdateCheckIntervalHours`: Update check interval in hours (default: 22.15)
+- `UpdateDelayMaxHours`: Maximum update delay in hours for staggered updates across instances (default: 96.0)

@@ -1,0 +1,25 @@
+# copy this file to ~/.config/systemd/user/shem-orchestrator.service or create it with
+# systemctl edit --force --full shem-orchestrator.service and paste the content below
+# reload units: systemctl --user daemon-reload
+# enable lingering (startup even if user is not logged in): loginctl enable-linger $USER
+# enable service: systemctl --user enable shem-orchestrator.service
+# start service: systemctl --user start shem-orchestrator.service
+
+[Unit]
+Description=SHEM Orchestrator
+After=network-online.target
+StartLimitBurst=5
+StartLimitIntervalSec=5min
+
+[Service]
+Type=exec
+ExecStart=%h/shem/bin/shem-orchestrator
+
+Restart=always
+RestartSec=10s
+
+WatchdogSec=120s
+NotifyAccess=all  # needed during verification run
+
+[Install]
+WantedBy=default.target
