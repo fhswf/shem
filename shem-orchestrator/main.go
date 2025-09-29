@@ -15,6 +15,9 @@ var Version = "undefined"
 func main() {
 	logger := NewLogger("orchestrator-main")
 
+	logger.Error("This version will exit immediately with exit code 1 to check the rollback mechanism.")
+	os.Exit(1)
+
 	// check compiled-in version number
 	if _, _, _, err := parseVersion(Version); err != nil {
 		logger.Error("Version '%s' is invalid (%v), please check build parameters.", Version, err)
