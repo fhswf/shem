@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -14,9 +15,6 @@ var Version = "undefined"
 
 func main() {
 	logger := NewLogger("orchestrator-main")
-
-	logger.Error("This version will exit immediately with exit code 1 to check the rollback mechanism.")
-	os.Exit(1)
 
 	// check compiled-in version number
 	if _, _, _, err := parseVersion(Version); err != nil {
@@ -32,8 +30,10 @@ func main() {
 	flag.Parse()
 
 	if *version {
-		fmt.Printf("shem-orchestrator version %s\n", Version)
+		fmt.Printf("shem-orchestrator version %s on %s\n", Version, runtime.GOARCH)
 		os.Exit(0)
+	} else {
+		logger.Info("shem-orchestrator version %s on %s\n", Version, runtime.GOARCH)
 	}
 
 	// find and check home directory
