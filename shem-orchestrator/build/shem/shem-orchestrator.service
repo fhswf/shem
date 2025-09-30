@@ -19,7 +19,8 @@ Restart=always
 RestartSec=10s
 
 WatchdogSec=120s
-NotifyAccess=all  # needed during verification run
+# needed during verification run:
+NotifyAccess=all
 
 [Install]
 WantedBy=default.target
