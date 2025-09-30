@@ -705,7 +705,7 @@ func (um *UpdateManager) extractBinaryFromImage(image, tag, targetPath string) e
 	containerName := "shem-orchestrator-extract-" + tag
 
 	// Create container without starting it
-	cmd := exec.Command("podman", "create", "--replace", "--name", containerName, imageAndTag)
+	cmd := exec.Command("podman", "create", "--replace", "--name", containerName, imageAndTag, "/bin/true")
 	if err := cmd.Run(); err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
 			return fmt.Errorf("failed to create container from image %s: %w, %s", imageAndTag, err, ee.Stderr)
