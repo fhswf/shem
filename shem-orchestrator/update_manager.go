@@ -64,15 +64,25 @@ func (um *UpdateManager) Run(ctx context.Context, cancel context.CancelFunc) {
 	// Store the cancel function for orchestrator restart
 	um.cancelFunc = cancel
 
-	// Create a ticker for regular update checks using config interval
-	checkIntervalHours, err := um.orchestratorConfig.GetFloat("UpdateCheckIntervalHours", 22.15)
-	if err != nil {
-		um.logger.Error("failed to get UpdateCheckIntervalHours: %v", err)
-		return
+	// Create a timer for the next update check
+	var nextCheckTimer *time.Timer
+
+	// Function to schedule next check
+	scheduleNextCheck := func() *time.Timer {
+		checkIntervalHours, err := um.orchestratorConfig.GetFloat("UpdateCheckIntervalHours", 22.15)
+		if err != nil {
+			um.logger.Error("failed to get UpdateCheckIntervalHours: %v", err)
+		}
+		checkInterval := time.Duration(checkIntervalHours * float64(time.Hour))
+		nextCheckTime := time.Now().Add(checkInterval)
+		um.logger.Info("next update check scheduled for %s (in %.2f hours)",
+			nextCheckTime.Format(time.DateTime), checkIntervalHours)
+		return time.NewTimer(checkInterval)
 	}
-	checkInterval := time.Duration(checkIntervalHours * float64(time.Hour))
-	updateTicker := time.NewTicker(checkInterval)
-	defer updateTicker.Stop()
+
+	// Schedule first check
+	nextCheckTimer = scheduleNextCheck()
+	defer nextCheckTimer.Stop()
 
 	// Main loop
 	for {
@@ -80,10 +90,12 @@ func (um *UpdateManager) Run(ctx context.Context, cancel context.CancelFunc) {
 		case <-ctx.Done():
 			um.logger.Info("stopping update manager")
 			return
-		case <-updateTicker.C:
+		case <-nextCheckTimer.C:
 			if err := um.checkAndScheduleUpdates(); err != nil {
 				um.logger.Error("error checking for updates: %v", err)
 			}
+			// Schedule next check after completing this one
+			nextCheckTimer = scheduleNextCheck()
 		case image := <-um.updateChannel:
 			um.logger.Info("executing scheduled update for module: %s", image)
 			if err := um.updateModule(image); err != nil {
