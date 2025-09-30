@@ -60,6 +60,14 @@ func (hs *HeartbeatService) Run(ctx context.Context) {
 	addr := &syscall.SockaddrUnix{Name: hs.notifySocket}
 	message := []byte("WATCHDOG=1")
 
+	// immediately send first heartbeat (if this is a verification run, the last hearbeat might
+	// have been some time ago)
+	if err := syscall.Sendto(fd, message, 0, addr); err != nil {
+		hs.logger.Error("failed to send heartbeat: %v", err)
+	} else {
+		hs.logger.Debug("sent heartbeat to systemd watchdog")
+	}
+
 	ticker := time.NewTicker(hs.interval)
 	defer ticker.Stop()
 
