@@ -64,76 +64,78 @@ type ModuleConfig struct {
 	moduleName string
 }
 
-// GetString returns a string configuration value with optional default
+// GetString returns a string configuration value or the default value
+// a missing file is ignored, all other errors are returned together with the default value
 // Reads from file $SHEM_HOME/modules/[module_name]/[key]
-func (mc *ModuleConfig) GetString(key string, defaultValue ...string) (string, error) {
+func (mc *ModuleConfig) GetString(key string, defaultValue string) (string, error) {
 	filePath := filepath.Join(mc.shemHome, "modules", mc.moduleName, key)
 	content, err := os.ReadFile(filePath)
 	if err != nil {
-		if os.IsNotExist(err) && len(defaultValue) > 0 {
-			return defaultValue[0], nil
+		if os.IsNotExist(err) {
+			return defaultValue, nil
+		} else {
+			return "", fmt.Errorf("failed to read configuration file %s: %w", filePath, err)
 		}
-		return "", fmt.Errorf("failed to read %s file for module %s: %w", key, mc.moduleName, err)
 	}
 	return strings.TrimSpace(string(content)), nil
 }
 
-// GetInt returns an integer configuration value with optional default
-func (mc *ModuleConfig) GetInt(key string, defaultValue ...int) (int, error) {
-	value, err := mc.GetString(key)
+// GetInt returns an integer configuration value or the default value
+// a missing or empty file is ignored, all other errors are returned together with the default value
+// Reads from file $SHEM_HOME/modules/[module_name]/[key]
+func (mc *ModuleConfig) GetInt(key string, defaultValue int) (int, error) {
+	value, err := mc.GetString(key, "")
 	if err != nil {
-		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
-		}
-		return 0, err
+		return defaultValue, err
 	}
-	if value == "" && len(defaultValue) > 0 {
-		return defaultValue[0], nil
+
+	if value == "" {
+		return defaultValue, nil
 	}
 
 	intValue, err := strconv.Atoi(value)
 	if err != nil {
-		return 0, fmt.Errorf("invalid integer value for %s: %s", key, value)
+		return defaultValue, fmt.Errorf("invalid integer value for %s: %s", key, value)
 	}
 	return intValue, nil
 }
 
-// GetFloat returns a float configuration value with optional default
-func (mc *ModuleConfig) GetFloat(key string, defaultValue ...float64) (float64, error) {
-	value, err := mc.GetString(key)
+// GetFloat returns a float configuration value or the default value
+// a missing or empty file is ignored, all other errors are returned together with the default value
+// Reads from file $SHEM_HOME/modules/[module_name]/[key]
+func (mc *ModuleConfig) GetFloat(key string, defaultValue float64) (float64, error) {
+	value, err := mc.GetString(key, "")
 	if err != nil {
-		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
-		}
-		return 0, err
+		return defaultValue, err
 	}
-	if value == "" && len(defaultValue) > 0 {
-		return defaultValue[0], nil
+
+	if value == "" {
+		return defaultValue, nil
 	}
 
 	floatValue, err := strconv.ParseFloat(value, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid float value for %s: %s", key, value)
+		return defaultValue, fmt.Errorf("invalid float value for %s: %s", key, value)
 	}
 	return floatValue, nil
 }
 
-// GetBool returns a boolean configuration value with optional default
-func (mc *ModuleConfig) GetBool(key string, defaultValue ...bool) (bool, error) {
-	value, err := mc.GetString(key)
+// GetBool returns a boolean configuration value or the default value
+// a missing or empty file is ignored, all other errors are returned together with the default value
+// Reads from file $SHEM_HOME/modules/[module_name]/[key]
+func (mc *ModuleConfig) GetBool(key string, defaultValue bool) (bool, error) {
+	value, err := mc.GetString(key, "")
 	if err != nil {
-		if len(defaultValue) > 0 {
-			return defaultValue[0], nil
-		}
-		return false, err
+		return defaultValue, err
 	}
-	if value == "" && len(defaultValue) > 0 {
-		return defaultValue[0], nil
+
+	if value == "" {
+		return defaultValue, nil
 	}
 
 	boolValue, err := strconv.ParseBool(value)
 	if err != nil {
-		return false, fmt.Errorf("invalid boolean value for %s: %s", key, value)
+		return defaultValue, fmt.Errorf("invalid boolean value for %s: %s", key, value)
 	}
 	return boolValue, nil
 }
