@@ -520,8 +520,8 @@ func (um *UpdateManager) currentModuleVersion(moduleName string) string {
 		return ""
 	}
 
-	currentVersion, err := moduleConfig.GetString("current_version")
-	if err != nil {
+	currentVersion, err := moduleConfig.GetString("current_version", "")
+	if err != nil || currentVersion == "" {
 		um.logger.Debug("no current version found for module %s", moduleName)
 		return ""
 	}
@@ -548,15 +548,15 @@ func (um *UpdateManager) checkAndScheduleUpdates() error {
 		}
 
 		// Get image name
-		image, err := moduleConfig.GetString("image")
-		if err != nil {
+		image, err := moduleConfig.GetString("image", "")
+		if err != nil || image == "" {
 			um.logger.Error("failed to get image for module %s: %v", moduleName, err)
 			continue
 		}
 
 		// Skip modules without public key (no auto-updates)
-		publicKey, err := moduleConfig.GetString("public_key")
-		if err != nil {
+		publicKey, err := moduleConfig.GetString("public_key", "")
+		if err != nil || publicKey == "" {
 			um.logger.Debug("no public key found for module %s, skipping auto-updates", moduleName)
 			continue
 		}
@@ -659,8 +659,8 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 		return fmt.Errorf("failed to load config for module %s: %w", moduleName, err)
 	}
 
-	image, err := moduleConfig.GetString("image")
-	if err != nil {
+	image, err := moduleConfig.GetString("image", "")
+	if err != nil || image == "" {
 		return fmt.Errorf("failed to get image for module %s: %w", moduleName, err)
 	}
 
@@ -674,14 +674,30 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 		return fmt.Errorf("no local versions found for image %s", image)
 	}
 
-	// Find the newest version using compareVersions
+	// Get module-specific blacklist
+	blacklist, err := moduleConfig.GetBlacklistedVersions()
+	if err != nil {
+		return fmt.Errorf("failed to read blacklist for module %s: %w", moduleName, err)
+	}
+
+	// Find the newest version using compareVersions, excluding blacklisted versions
 	var newestVersion string
 	for version := range localVersions {
+		// Skip if version is blacklisted
+		if _, isBlacklisted := blacklist[version]; isBlacklisted {
+			um.logger.Debug("skipping blacklisted version %s for module %s", version, moduleName)
+			continue
+		}
+
 		if newestVersion == "" {
 			newestVersion = version
 		} else if compareVersions(version, newestVersion) > 0 {
 			newestVersion = version
 		}
+	}
+
+	if newestVersion == "" {
+		return fmt.Errorf("no non-blacklisted local versions found for image %s", image)
 	}
 
 	// Check whether it is newer than the currentModuleVersion(); if not, exit
