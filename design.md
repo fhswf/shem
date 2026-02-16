@@ -110,12 +110,10 @@ Functionality of the orchestrator include
 ### Module containers
 Every instance of every module lives in its own container. The isolation between containers makes it harder to exploit security defects in a module and to contain the effects of a successful attack on a module.
 
-SHEM will make use of OCI containers (docker, podman). The isolation might be improved giving each module instance its own virtual machine (like in Kata Containers or Qubes OS), or by using FreeBSD jails.
+SHEM currently makes use of OCI containers (docker, podman). The isolation might later be improved giving each module instance its own virtual machine (like in Kata Containers or Qubes OS), or by using FreeBSD jails.
 
 ### Communication between modules
-Every module can only communicate to the orchestrator. If it requires data from other modules, it can request it from the orchestrator.
-
-All communication uses a simple data format that is validated by the orchestrator before any data is passed on. The orchestrator also verifies that a module can only send data it is supposed to send and rate-limits the amount of data sent.
+Every module can only communicate with the orchestrator. All communication uses a simple, human-readable data format that is validated by the orchestrator before any data is passed on. The orchestrator also rate-limits the amount of data sent. More details can be found in [modules.md](./modules.md#module-communication).
 
 ### Communication with devices
 The connection to a local device is made via USB or network. The corresponding logical device (USB tty device or network socket) is assigned exclusively to the module that manages the local device.
