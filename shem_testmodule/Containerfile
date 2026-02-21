@@ -1,0 +1,19 @@
+# Build container: specify go version explicitly to make builds reproducible
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.0-alpine3.23 AS builder
+
+WORKDIR /src
+COPY . .
+
+# Build the binary for the target architecture
+# CGO_ENABLED=0 forces statically linked binary
+# -trimpath -buildvcs=false help making the build reproducible
+ARG TARGETARCH
+ARG TARGETOS
+ARG VERSION
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -buildvcs=false -ldflags="-s -w" .
+
+# Binary container needs nothing but the (statically linked) executable
+FROM scratch
+COPY --from=builder /src/shem_testmodule /shem_testmodule
+
+ENTRYPOINT ["/shem_testmodule"]
