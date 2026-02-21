@@ -24,6 +24,8 @@ The files and the directory have these meanings:
 - `module-config/`: a directory for configuration files that is mounted read-only into the module's container
 - `storage/`: modules that are allowed to persist data will have this directory mounted into the container
 
+The orchestrator re-reads a config file each time it needs the corresponding config value. Changes therefore become effective after a short time without any need to signal or restart the orchestrator.
+
 ### Orchestrator additional options
 These options can be set by creating a file named after the option in `$SHEM_HOME/modules/orchestrator/`:
 - `UpdateCheckIntervalHours`: Update check interval in hours (default: 22.15)
@@ -145,10 +147,3 @@ This module would receive:
 - `optimizer.device_2_setpoint` as `setpoint`
 - `temperature` values from all modules (under their fully qualified names)
 - all values from module `gui` (under their fully qualified names)
-
-
-### Validation
-The orchestrator validates all `inputs` files:
-
-- **Invalid patterns** generate an error message (but the module will still keep running)
-- **Unknown module names** in non-wildcard patterns generate a warning message 

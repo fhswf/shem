@@ -14,6 +14,10 @@ StartLimitIntervalSec=5min
 [Service]
 Type=exec
 ExecStart=%h/shem/bin/shem-orchestrator
+# podman needs to control cgroups
+Delegate=yes
+# only signal the orchestrator
+KillMode=process
 
 Restart=always
 RestartSec=10s

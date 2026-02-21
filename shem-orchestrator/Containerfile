@@ -1,8 +1,9 @@
 # Build container: specify go version explicitly to make builds reproducible
-FROM --platform=$BUILDPLATFORM golang:1.25.3-alpine3.22 AS builder
+FROM --platform=$BUILDPLATFORM docker.io/library/golang:1.26.0-alpine3.23 AS builder
 
 WORKDIR /src
-COPY . .
+COPY shemmsg/ ./shemmsg/
+COPY shem-orchestrator/ ./shem-orchestrator/
 
 # Build the binary for the target architecture
 # CGO_ENABLED=0 forces statically linked binary
@@ -10,11 +11,11 @@ COPY . .
 ARG TARGETARCH
 ARG TARGETOS
 ARG VERSION
-RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" -o shem-orchestrator .
+RUN cd shem-orchestrator && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath -buildvcs=false -ldflags="-s -w -X main.Version=${VERSION}" -o shem-orchestrator .
 
 # Binary container needs nothing but the (statically linked) executable
 FROM scratch
-COPY --from=builder /src/shem-orchestrator /shem-orchestrator
+COPY --from=builder /src/shem-orchestrator/shem-orchestrator /shem-orchestrator
 
 # The binary is the only content. No entrypoint needed as the
 # running orchestrator will extract this binary via 'podman cp'.

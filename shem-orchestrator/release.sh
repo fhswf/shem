@@ -3,7 +3,7 @@ set -e
 
 REGISTRY="quay.io/shem"
 IMAGE_NAME="shem-orchestrator"
-VERSION="0.0.4"
+VERSION="0.0.5"
 
 pushd ./build
 

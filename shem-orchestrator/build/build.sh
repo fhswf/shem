@@ -9,4 +9,5 @@ podman build \
     --platform linux/${ARCH} \
     --build-arg VERSION=${VERSION} \
     -t "${IMAGE_NAME}:${VERSION}-${ARCH}" \
-    -f ../Containerfile
+    -f ../Containerfile \
+    ../..

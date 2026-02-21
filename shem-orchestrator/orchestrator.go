@@ -18,6 +18,7 @@ type Orchestrator struct {
 	logger          *Logger
 	configManager   *ConfigManager
 	updateManager   *UpdateManager
+	moduleManager   *ModuleManager
 }
 
 // NewOrchestrator creates a new orchestrator instance
@@ -30,11 +31,15 @@ func NewOrchestrator(shemHome string, verificationRun bool) (*Orchestrator, erro
 	// Initialize update manager
 	updateManager := NewUpdateManager(configManager, verificationRun)
 
+	// Initialize module manager
+	moduleManager := NewModuleManager(configManager)
+
 	return &Orchestrator{
 		shemHome:        shemHome,
 		configManager:   configManager,
 		logger:          logger,
 		updateManager:   updateManager,
+		moduleManager:   moduleManager,
 		verificationRun: verificationRun,
 	}, nil
 }
@@ -56,6 +61,10 @@ func (o *Orchestrator) Run() {
 	// Start services
 	wg.Go(func() {
 		o.updateManager.Run(ctx, cancel)
+	})
+
+	wg.Go(func() {
+		o.moduleManager.Run(ctx)
 	})
 
 	if heartbeatService, err := NewHeartbeatService(); err == nil {
