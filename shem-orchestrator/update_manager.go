@@ -40,11 +40,7 @@ type UpdateManager struct {
 func NewUpdateManager(configManager *ConfigManager, verificationRun bool) *UpdateManager {
 	logger := NewLogger("orchestrator-updatemanager")
 
-	orchestratorConfig, err := configManager.NewModuleConfig("orchestrator")
-	if err != nil {
-		logger.Error("failed to load orchestrator config: %v", err)
-		// Continue with nil config - methods will handle errors
-	}
+	orchestratorConfig, _ := configManager.NewModuleConfig("orchestrator")
 
 	return &UpdateManager{
 		configManager:      configManager,
@@ -64,25 +60,10 @@ func (um *UpdateManager) Run(ctx context.Context, cancel context.CancelFunc) {
 	// Store the cancel function for orchestrator restart
 	um.cancelFunc = cancel
 
-	// Create a timer for the next update check
-	var nextCheckTimer *time.Timer
-
-	// Function to schedule next check
-	scheduleNextCheck := func() *time.Timer {
-		checkIntervalHours, err := um.orchestratorConfig.GetFloat("UpdateCheckIntervalHours", 22.15)
-		if err != nil {
-			um.logger.Error("failed to get UpdateCheckIntervalHours: %v", err)
-		}
-		checkInterval := time.Duration(checkIntervalHours * float64(time.Hour))
-		nextCheckTime := time.Now().Add(checkInterval)
-		um.logger.Info("next update check scheduled for %s (in %.2f hours)",
-			nextCheckTime.Format(time.DateTime), checkIntervalHours)
-		return time.NewTimer(checkInterval)
-	}
-
-	// Schedule first check
-	nextCheckTimer = scheduleNextCheck()
-	defer nextCheckTimer.Stop()
+	// Check every minute whether the configured update interval has elapsed since the last check
+	lastCheck := time.Now()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
 
 	// Main loop
 	for {
@@ -90,12 +71,16 @@ func (um *UpdateManager) Run(ctx context.Context, cancel context.CancelFunc) {
 		case <-ctx.Done():
 			um.logger.Info("stopping update manager")
 			return
-		case <-nextCheckTimer.C:
+		case <-ticker.C:
+			checkIntervalHours, _ := um.orchestratorConfig.GetFloat("UpdateCheckIntervalHours", 22.15)
+			checkInterval := time.Duration(checkIntervalHours * float64(time.Hour))
+			if time.Since(lastCheck) < checkInterval {
+				continue
+			}
+			lastCheck = time.Now()
 			if err := um.checkAndScheduleUpdates(); err != nil {
 				um.logger.Error("error checking for updates: %v", err)
 			}
-			// Schedule next check after completing this one
-			nextCheckTimer = scheduleNextCheck()
 		case image := <-um.updateChannel:
 			um.logger.Info("executing scheduled update for module: %s", image)
 			if err := um.updateModule(image); err != nil {
@@ -514,18 +499,8 @@ func (um *UpdateManager) currentModuleVersion(moduleName string) string {
 	}
 
 	// For all other modules, read current_version from config
-	moduleConfig, err := um.configManager.NewModuleConfig(moduleName)
-	if err != nil {
-		um.logger.Error("failed to load config for module %s: %v", moduleName, err)
-		return ""
-	}
-
-	currentVersion, err := moduleConfig.GetString("current_version", "")
-	if err != nil || currentVersion == "" {
-		um.logger.Debug("no current version found for module %s", moduleName)
-		return ""
-	}
-
+	moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
+	currentVersion, _ := moduleConfig.GetString("current_version", "")
 	return currentVersion
 }
 
@@ -534,29 +509,24 @@ func (um *UpdateManager) checkAndScheduleUpdates() error {
 	// Load modules configuration
 	moduleNames, err := um.configManager.ListModules()
 	if err != nil {
-		return fmt.Errorf("failed to list modules: %w", err)
+		um.logger.Error("failed to list modules: %v", err)
 	}
 
 	um.logger.Info("checking for updates for %d modules", len(moduleNames))
 
 	// Iterate through all modules
 	for _, moduleName := range moduleNames {
-		moduleConfig, err := um.configManager.NewModuleConfig(moduleName)
-		if err != nil {
-			um.logger.Error("failed to load config for module %s: %v", moduleName, err)
-			continue
-		}
+		moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
 
 		// Get image name
-		image, err := moduleConfig.GetString("image", "")
-		if err != nil || image == "" {
-			um.logger.Error("failed to get image for module %s: %v", moduleName, err)
+		image, _ := moduleConfig.GetString("image", "")
+		if image == "" {
 			continue
 		}
 
 		// Skip modules without public key (no auto-updates)
-		publicKey, err := moduleConfig.GetString("public_key", "")
-		if err != nil || publicKey == "" {
+		publicKey, _ := moduleConfig.GetString("public_key", "")
+		if publicKey == "" {
 			um.logger.Debug("no public key found for module %s, skipping auto-updates", moduleName)
 			continue
 		}
@@ -573,11 +543,7 @@ func (um *UpdateManager) checkAndScheduleUpdates() error {
 		}
 
 		// Get module-specific blacklist
-		blacklist, err := moduleConfig.GetBlacklistedVersions()
-		if err != nil {
-			um.logger.Error("failed to read blacklist for module %s: %v", moduleName, err)
-			continue
-		}
+		blacklist, _ := moduleConfig.GetBlacklistedVersions()
 
 		// Keep trying to find updates until we succeed or run out of versions
 		for {
@@ -621,11 +587,7 @@ func (um *UpdateManager) checkAndScheduleUpdates() error {
 // scheduleUpdate schedules a module update with a random delay up to UpdateDelayMaxHours
 func (um *UpdateManager) scheduleUpdate(moduleName, newVersion string) {
 	// Generate random delay between 0 and UpdateDelayMaxHours
-	maxDelayHours, err := um.orchestratorConfig.GetFloat("UpdateDelayMaxHours", 96.0)
-	if err != nil {
-		um.logger.Error("failed to get UpdateDelayMaxHours: %v", err)
-		return
-	}
+	maxDelayHours, _ := um.orchestratorConfig.GetFloat("UpdateDelayMaxHours", 96.0)
 	delayHours := rand.Float64() * maxDelayHours
 	delay := time.Duration(delayHours * float64(time.Hour))
 
@@ -654,14 +616,11 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 	delete(um.scheduledUpdates, moduleName)
 
 	// Get image name from module config
-	moduleConfig, err := um.configManager.NewModuleConfig(moduleName)
-	if err != nil {
-		return fmt.Errorf("failed to load config for module %s: %w", moduleName, err)
-	}
+	moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
 
-	image, err := moduleConfig.GetString("image", "")
-	if err != nil || image == "" {
-		return fmt.Errorf("failed to get image for module %s: %w", moduleName, err)
+	image, _ := moduleConfig.GetString("image", "")
+	if image == "" {
+		return fmt.Errorf("no image configured for module %s", moduleName)
 	}
 
 	// Use findLocalVersions to find all local versions
@@ -675,10 +634,7 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 	}
 
 	// Get module-specific blacklist
-	blacklist, err := moduleConfig.GetBlacklistedVersions()
-	if err != nil {
-		return fmt.Errorf("failed to read blacklist for module %s: %w", moduleName, err)
-	}
+	blacklist, _ := moduleConfig.GetBlacklistedVersions()
 
 	// Find the newest version using compareVersions, excluding blacklisted versions
 	var newestVersion string

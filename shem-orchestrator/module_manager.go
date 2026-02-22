@@ -148,26 +148,14 @@ func (mm *ModuleManager) reconcile() {
 		}
 
 		// No running instance, try to start
-		moduleConfig, err := mm.configManager.NewModuleConfig(name)
-		if err != nil {
-			mm.logger.Error("failed to get config for module %s: %v", name, err)
-			continue
-		}
+		moduleConfig, _ := mm.configManager.NewModuleConfig(name)
 
-		version, err := moduleConfig.GetString("current_version", "")
-		if err != nil {
-			mm.logger.Error("failed to get current_version for %s: %v", name, err)
-			continue
-		}
+		version, _ := moduleConfig.GetString("current_version", "")
 		if version == "" {
 			continue
 		}
 
-		image, err := moduleConfig.GetString("image", "")
-		if err != nil {
-			mm.logger.Error("failed to get image for %s: %v", name, err)
-			continue
-		}
+		image, _ := moduleConfig.GetString("image", "")
 		if image == "" {
 			mm.logger.Warn("module %s has no image set", name)
 			continue

@@ -129,13 +129,9 @@ func (o *Orchestrator) VerificationRunCheck() {
 
 	o.logger.Info("verification run successful, removing blacklist entry")
 	// remove blacklist entry
-	orchestratorConfig, err := o.configManager.NewModuleConfig("orchestrator")
-	if err != nil {
-		o.logger.Error("failed to get orchestrator config: %v", err)
-	} else {
-		if err := orchestratorConfig.RemoveFromBlacklist(Version); err != nil {
-			o.logger.Error("failed to remove version %s from orchestrator blacklist: %v", Version, err)
-		}
+	orchestratorConfig, _ := o.configManager.NewModuleConfig("orchestrator")
+	if err := orchestratorConfig.RemoveFromBlacklist(Version); err != nil {
+		o.logger.Error("failed to remove version %s from orchestrator blacklist: %v", Version, err)
 	}
 
 	// update symlink to point to this version

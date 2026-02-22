@@ -28,7 +28,7 @@ func (cm *ConfigManager) ListModules() ([]string, error) {
 
 	entries, err := os.ReadDir(modulesDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read modules directory: %w", err)
+		return []string{}, fmt.Errorf("failed to read modules directory: %w", err)
 	}
 
 	var modules []string
@@ -47,15 +47,17 @@ func (cm *ConfigManager) ListModules() ([]string, error) {
 
 // NewModuleConfig creates a new module configuration accessor
 func (cm *ConfigManager) NewModuleConfig(moduleName string) (*ModuleConfig, error) {
-	modulePath := filepath.Join(cm.shemHome, "modules", moduleName)
-	if _, err := os.Stat(modulePath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("module %s does not exist", moduleName)
-	}
-
-	return &ModuleConfig{
+	mc := &ModuleConfig{
 		shemHome:   cm.shemHome,
 		moduleName: moduleName,
-	}, nil
+	}
+
+	modulePath := filepath.Join(cm.shemHome, "modules", moduleName)
+	if _, err := os.Stat(modulePath); os.IsNotExist(err) {
+		return mc, fmt.Errorf("module %s does not exist", moduleName)
+	}
+
+	return mc, nil
 }
 
 // ModuleConfig provides access to a specific module's configuration
@@ -74,7 +76,7 @@ func (mc *ModuleConfig) GetString(key string, defaultValue string) (string, erro
 		if os.IsNotExist(err) {
 			return defaultValue, nil
 		} else {
-			return "", fmt.Errorf("failed to read configuration file %s: %w", filePath, err)
+			return defaultValue, fmt.Errorf("failed to read configuration file %s: %w", filePath, err)
 		}
 	}
 	return strings.TrimSpace(string(content)), nil
@@ -159,7 +161,7 @@ func (mc *ModuleConfig) GetBlacklistedVersions() (map[string]struct{}, error) {
 		return blacklist, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("failed to read blacklist file for module %s: %w", mc.moduleName, err)
+		return blacklist, fmt.Errorf("failed to read blacklist file for module %s: %w", mc.moduleName, err)
 	}
 
 	scanner := bufio.NewScanner(strings.NewReader(string(content)))
