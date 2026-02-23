@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 )
 
 // inject version number with ldflags="-X main.Version=0.0.0"
@@ -78,7 +80,7 @@ func main() {
 			} else {
 				logger.Info("added version %s to blacklist, executing verification run", newestVersion)
 				binaryPath := filepath.Join(shemHome, "bin", "shem-orchestrator-"+newestVersion)
-				executeVerificationRun(logger, binaryPath)
+				executeVerificationRun(logger, binaryPath, orchestratorConfig, newestVersion)
 				// Note: executeVerificationRun does not return but calls os.Exit()
 			}
 		}
@@ -148,22 +150,40 @@ func findNewestOrchestratorVersion(logger *Logger, binDir string, orchestratorCo
 }
 
 // executeVerificationRun executes a newer orchestrator binary with verification run
-func executeVerificationRun(logger *Logger, binaryPath string) {
+func executeVerificationRun(logger *Logger, binaryPath string, orchestratorConfig *ModuleConfig, version string) {
 	// Execute the binary with --verification-run flag
 	logger.Info("executing verification run: %s --verification-run", binaryPath)
 	cmd := exec.Command(binaryPath, "--verification-run")
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-
 	if err := cmd.Start(); err != nil {
 		logger.Error("failed to start verification run: %v", err)
 		os.Exit(1)
-	} else {
-		logger.Info("new orchestrator is being started")
+	}
+	logger.Info("new orchestrator is being started")
+
+	// Forward SIGTERM/SIGINT to the child process so that systemd can stop it
+	var forwarded bool
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		sig := <-sigCh
+		forwarded = true
+		cmd.Process.Signal(sig)
+	}()
+
+	err := cmd.Wait()
+
+	if forwarded {
+		logger.Info("verification run interrupted by signal, removing blacklist entry")
+		if err := orchestratorConfig.RemoveFromBlacklist(version); err != nil {
+			logger.Error("failed to remove version %s from blacklist: %v", version, err)
+		}
+		os.Exit(0)
 	}
 
-	if err := cmd.Wait(); err != nil {
+	if err != nil {
 		if exitError, ok := err.(*exec.ExitError); ok {
 			exitCode := exitError.ExitCode()
 			logger.Error("verification run exited with code %d", exitCode)
