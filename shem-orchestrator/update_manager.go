@@ -33,7 +33,8 @@ type UpdateManager struct {
 	logger             *Logger
 	updateChannel      chan string
 	cancelFunc         context.CancelFunc
-	scheduledUpdates   map[string]string // maps module name to scheduled version
+	scheduledUpdates  map[string]string    // maps module name to scheduled version
+	confirmationTimes map[string]time.Time // when each module's update should be confirmed
 }
 
 // NewUpdateManager creates a new update manager instance
@@ -49,7 +50,8 @@ func NewUpdateManager(configManager *ConfigManager, verificationRun bool) *Updat
 		verificationRun:    verificationRun,
 		logger:             logger,
 		updateChannel:      make(chan string, 100),
-		scheduledUpdates:   make(map[string]string),
+		scheduledUpdates:  make(map[string]string),
+		confirmationTimes: make(map[string]time.Time),
 	}
 }
 
@@ -72,6 +74,19 @@ func (um *UpdateManager) Run(ctx context.Context, cancel context.CancelFunc) {
 			um.logger.Info("stopping update manager")
 			return
 		case <-ticker.C:
+			// Check for updates that are ready to be confirmed
+			for moduleName, confirmTime := range um.confirmationTimes {
+				// Skip disabled modules — they haven't been running
+				moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
+				if moduleConfig.KeyExists("disabled") {
+					delete(um.confirmationTimes, moduleName)
+					continue
+				}
+				if time.Now().After(confirmTime) {
+					um.confirmUpdate(moduleName)
+				}
+			}
+
 			checkIntervalHours, _ := um.orchestratorConfig.GetFloat("UpdateCheckIntervalHours", 22.15)
 			checkInterval := time.Duration(checkIntervalHours * float64(time.Hour))
 			if time.Since(lastCheck) < checkInterval {
@@ -518,6 +533,20 @@ func (um *UpdateManager) checkAndScheduleUpdates() error {
 	for _, moduleName := range moduleNames {
 		moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
 
+		// Skip disabled modules
+		if moduleConfig.KeyExists("disabled") {
+			continue
+		}
+
+		// Re-establish confirmation timer for unconfirmed updates if needed
+		if _, hasTimer := um.confirmationTimes[moduleName]; !hasTimer {
+			fallback, _ := moduleConfig.GetString("fallback_version", "")
+			if fallback != "" {
+				um.logger.Info("re-establishing confirmation timer for module %s", moduleName)
+				um.scheduleConfirmation(moduleName)
+			}
+		}
+
 		// Get image name
 		image, _ := moduleConfig.GetString("image", "")
 		if image == "" {
@@ -663,9 +692,21 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 		return nil
 	}
 
-	// Check whether module is different from "shem-orchestrator"; if so, skip as not implemented for now
-	if !(moduleName == "orchestrator") {
-		um.logger.Info("module update not yet implemented for non-orchestrator modules: %s", moduleName)
+	if moduleName != "orchestrator" {
+		// For non-orchestrator modules: update config to trigger module-manager restart
+		// Write fallback_version only if it doesn't exist (preserve last confirmed version)
+		existingFallback, _ := moduleConfig.GetString("fallback_version", "")
+		if existingFallback == "" && currentVersion != "" {
+			if err := moduleConfig.SetString("fallback_version", currentVersion); err != nil {
+				return fmt.Errorf("failed to write fallback_version for %s: %w", moduleName, err)
+			}
+		}
+		// Write new current_version — module-manager will detect the change and restart
+		if err := moduleConfig.SetString("current_version", newestVersion); err != nil {
+			return fmt.Errorf("failed to write current_version for %s: %w", moduleName, err)
+		}
+		um.logger.Info("updated module %s: %s -> %s", moduleName, currentVersion, newestVersion)
+		um.scheduleConfirmation(moduleName)
 		return nil
 	}
 
@@ -680,6 +721,23 @@ func (um *UpdateManager) updateModule(moduleName string) error {
 
 	// Trigger restart of orchestrator
 	return um.triggerOrchestratorRestart(newestVersion)
+}
+
+// scheduleConfirmation sets a confirmation time for a module update (10 minutes from now)
+func (um *UpdateManager) scheduleConfirmation(moduleName string) {
+	um.confirmationTimes[moduleName] = time.Now().Add(10 * time.Minute)
+	um.logger.Info("confirmation timer started for module %s (10 minutes)", moduleName)
+}
+
+// confirmUpdate confirms a module update by removing the fallback_version config
+func (um *UpdateManager) confirmUpdate(moduleName string) {
+	moduleConfig, _ := um.configManager.NewModuleConfig(moduleName)
+	if err := moduleConfig.RemoveKey("fallback_version"); err != nil {
+		um.logger.Error("failed to remove fallback_version for %s: %v", moduleName, err)
+		return
+	}
+	delete(um.confirmationTimes, moduleName)
+	um.logger.Info("update confirmed for module %s", moduleName)
 }
 
 // extractBinaryFromImage extracts the /shem-orchestrator binary from a container image to targetPath

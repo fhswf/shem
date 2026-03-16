@@ -23,6 +23,7 @@ type ModuleManager struct {
 	configManager *ConfigManager
 	logger        *Logger
 	modules       map[string]*ModuleInstance // only contains running modules
+	health        map[string]float64         // exponential decay health indicator per module
 	mu            sync.Mutex
 }
 
@@ -43,8 +44,9 @@ type ModuleInstance struct {
 func NewModuleManager(configManager *ConfigManager) *ModuleManager {
 	return &ModuleManager{
 		configManager: configManager,
-		logger:        NewLogger("module-manager"),
+		logger:        NewLogger("orchestrator-modulemanager"),
 		modules:       make(map[string]*ModuleInstance),
+		health:        make(map[string]float64),
 	}
 }
 
@@ -89,15 +91,17 @@ func (mm *ModuleManager) reconcile() {
 			continue
 		}
 
+		// Apply health decay (zero-value for new entries is 0.0, so *= is safe)
+		mm.health[name] *= 0.974
+
 		mm.mu.Lock()
 		instance := mm.modules[name]
 		mm.mu.Unlock()
 
-		moduleDir := filepath.Join(mm.configManager.shemHome, "modules", name)
+		moduleConfig, _ := mm.configManager.NewModuleConfig(name)
 
 		// Handle disabled file
-		disabledPath := filepath.Join(moduleDir, "disabled")
-		if _, err := os.Stat(disabledPath); err == nil {
+		if moduleConfig.KeyExists("disabled") {
 			if instance != nil {
 				mm.logger.Info("module %s is disabled, stopping", name)
 				mm.requestStop(instance)
@@ -106,9 +110,8 @@ func (mm *ModuleManager) reconcile() {
 		}
 
 		// Handle restart file
-		restartPath := filepath.Join(moduleDir, "restart")
-		if _, err := os.Stat(restartPath); err == nil {
-			os.Remove(restartPath)
+		if moduleConfig.KeyExists("restart") {
+			moduleConfig.RemoveKey("restart")
 			if instance != nil {
 				mm.logger.Info("restart requested for module %s", name)
 				mm.requestStop(instance)
@@ -120,12 +123,6 @@ func (mm *ModuleManager) reconcile() {
 
 		// If module is running, check if config changed
 		if instance != nil {
-			moduleConfig, err := mm.configManager.NewModuleConfig(name)
-			if err != nil {
-				mm.logger.Error("failed to get config for module %s: %v", name, err)
-				continue
-			}
-
 			version, err := moduleConfig.GetString("current_version", "")
 			if err != nil {
 				mm.logger.Error("failed to get current_version for %s: %v", name, err)
@@ -148,7 +145,6 @@ func (mm *ModuleManager) reconcile() {
 		}
 
 		// No running instance, try to start
-		moduleConfig, _ := mm.configManager.NewModuleConfig(name)
 
 		version, _ := moduleConfig.GetString("current_version", "")
 		if version == "" {
@@ -158,6 +154,16 @@ func (mm *ModuleManager) reconcile() {
 		image, _ := moduleConfig.GetString("image", "")
 		if image == "" {
 			mm.logger.Warn("module %s has no image set", name)
+			continue
+		}
+
+		// Apply health penalty for restart
+		mm.health[name] -= 1.0
+		mm.logger.Info("module %s restarting, health: %.2f", name, mm.health[name])
+
+		// Check if module is failing too much
+		if mm.health[name] < -2.7 {
+			mm.handleFailedModule(name, moduleConfig)
 			continue
 		}
 
@@ -185,6 +191,39 @@ func (mm *ModuleManager) reconcile() {
 		mm.logger.Info("module %s removed from config, stopping", instance.name)
 		mm.requestStop(instance)
 	}
+}
+
+// handleFailedModule handles a module whose health has dropped below the threshold
+func (mm *ModuleManager) handleFailedModule(name string, moduleConfig *ModuleConfig) {
+	fallback, _ := moduleConfig.GetString("fallback_version", "")
+	if fallback == "" {
+		mm.logger.Warn("module %s health critical (%.2f) but no fallback_version available", name, mm.health[name])
+		return
+	}
+
+	currentVersion, _ := moduleConfig.GetString("current_version", "")
+	mm.logger.Info("rolling back module %s from %s to %s", name, currentVersion, fallback)
+
+	// Blacklist the failed version
+	if currentVersion != "" {
+		if err := moduleConfig.AddToBlacklist(currentVersion); err != nil {
+			mm.logger.Error("failed to blacklist version %s for %s: %v", currentVersion, name, err)
+		}
+	}
+
+	// Restore fallback version as current
+	if err := moduleConfig.SetString("current_version", fallback); err != nil {
+		mm.logger.Error("failed to restore fallback version for %s: %v", name, err)
+		return
+	}
+
+	// Remove fallback_version
+	if err := moduleConfig.RemoveKey("fallback_version"); err != nil {
+		mm.logger.Error("failed to remove fallback_version for %s: %v", name, err)
+	}
+
+	// Reset health for fresh start with fallback version
+	mm.health[name] = 0
 }
 
 // cleanupOrphanedContainers finds and removes any shem-module-* containers
@@ -396,7 +435,7 @@ func (mm *ModuleManager) buildPodmanCommand(moduleName, containerName, image str
 		"--cpus", "0.1", // CPU limit
 		"--read-only",                         // read-only root filesystem
 		"--security-opt", "no-new-privileges", // container cannot gain additional privileges
-		"--log-driver", "none",                // disable container logging, we read via pipes
+		"--log-driver", "none", // disable container logging, we read via pipes
 	}
 
 	// Mount module-config directory if it exists

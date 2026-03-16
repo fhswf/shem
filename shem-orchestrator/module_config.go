@@ -142,6 +142,22 @@ func (mc *ModuleConfig) GetBool(key string, defaultValue bool) (bool, error) {
 	return boolValue, nil
 }
 
+// KeyExists checks whether a configuration file exists
+func (mc *ModuleConfig) KeyExists(key string) bool {
+	filePath := filepath.Join(mc.shemHome, "modules", mc.moduleName, key)
+	_, err := os.Stat(filePath)
+	return err == nil
+}
+
+// RemoveKey removes a configuration file
+func (mc *ModuleConfig) RemoveKey(key string) error {
+	filePath := filepath.Join(mc.shemHome, "modules", mc.moduleName, key)
+	if err := os.Remove(filePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove config key %s for module %s: %w", key, mc.moduleName, err)
+	}
+	return nil
+}
+
 // SetString sets a configuration value by writing to the corresponding file
 func (mc *ModuleConfig) SetString(key, value string) error {
 	filePath := filepath.Join(mc.shemHome, "modules", mc.moduleName, key)
