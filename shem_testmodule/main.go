@@ -104,6 +104,9 @@ func sendPeriodicValues(shutdownChan <-chan struct{}) {
 }
 
 func main() {
+	log(LogErr, "This is an intentionally broken version for testing purposes.")
+	os.Exit(1)
+
 	log(LogInfo, "Test module starting")
 
 	// channel for shutdown signal

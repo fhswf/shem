@@ -3,7 +3,7 @@ set -e
 
 REGISTRY="quay.io/shem"
 IMAGE_NAME="shem_testmodule"
-VERSION="0.0.1"
+VERSION="0.0.2"
 
 # Build
 echo "Building for amd64..."
